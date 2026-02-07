@@ -6,13 +6,15 @@ use crate::{graphics::Graphics, text::TextRenderer};
 use crate::ui::EguiRenderer;
 
 use egor_app::{
-    AppConfig, AppHandler, AppRunner, Window, WindowEvent, input::Input, time::FrameTimer,
+    AppConfig, AppHandler, AppRunner, ControlFlow, Window, WindowEvent, input::Input,
+    time::FrameTimer,
 };
 use egor_render::{Backbuffer, RenderTarget, Renderer};
 
 type UpdateFn = dyn FnMut(&mut FrameContext);
 
 pub struct FrameContext<'a> {
+    pub window: &'a Window,
     pub events: Vec<WindowEvent>,
     pub gfx: Graphics<'a>,
     pub input: &'a Input,
@@ -81,6 +83,28 @@ impl App {
     /// Enable or disable vsync
     pub fn vsync(mut self, enabled: bool) -> Self {
         self.vsync = enabled;
+        self
+    }
+
+    /// Set the event loop control flow (defaults to [`ControlFlow::Poll`])
+    ///
+    /// Use [`ControlFlow::Wait`] for event-driven apps that only redraw on
+    /// input. Call [`FrameContext::window`]`.request_redraw()` to trigger frames.
+    pub fn control_flow(mut self, control_flow: ControlFlow) -> Self {
+        if let Some(c) = self.config.as_mut() {
+            c.control_flow = control_flow;
+        }
+        self
+    }
+
+    /// Enable redraw on cursor movement in [`ControlFlow::Wait`] mode (default: false)
+    ///
+    /// When disabled, cursor movement does not trigger a frame, which is ideal for
+    /// keyboard-driven apps. Enable for apps that need hover effects in Wait mode.
+    pub fn redraw_on_cursor_move(mut self, enabled: bool) -> Self {
+        if let Some(c) = self.config.as_mut() {
+            c.redraw_on_cursor_move = enabled;
+        }
         self
     }
 
@@ -176,6 +200,7 @@ impl AppHandler<Renderer> for App {
         #[cfg(feature = "ui")]
         let egui_ctx = self.egui.as_mut().unwrap().begin_frame(_window);
         let mut ctx = FrameContext {
+            window: _window,
             gfx: Graphics::new(renderer, text_renderer, w, h),
             input,
             timer,

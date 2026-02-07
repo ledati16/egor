@@ -53,7 +53,7 @@
 //! - Optional backends can be enabled to override defaults or for cross-platform targeting
 
 pub mod app {
-    pub use egor_app::WindowEvent;
+    pub use egor_app::{ControlFlow, WindowEvent};
     #[cfg(target_os = "android")]
     pub use egor_app::{ANDROID_APP, AndroidApp};
     pub use egor_glue::app::{App, FrameContext};

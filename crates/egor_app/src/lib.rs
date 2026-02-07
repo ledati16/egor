@@ -3,7 +3,7 @@ pub mod time;
 
 use crate::{input::Input, time::FrameTimer};
 use std::sync::Arc;
-pub use winit::{event::WindowEvent, window::Window};
+pub use winit::{event::WindowEvent, event_loop::ControlFlow, window::Window};
 
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
@@ -16,7 +16,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
     event::MouseScrollDelta,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::WindowId,
 };
 
@@ -25,6 +25,13 @@ pub struct AppConfig {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub resizable: bool,
+    /// Event loop control flow mode. Defaults to [`ControlFlow::Poll`].
+    pub control_flow: ControlFlow,
+    /// When using [`ControlFlow::Wait`], trigger a redraw on cursor movement.
+    ///
+    /// Disabled by default since keyboard-driven apps don't need per-pixel
+    /// cursor redraws. Enable for apps that need hover effects in Wait mode.
+    pub redraw_on_cursor_move: bool,
 }
 
 impl Default for AppConfig {
@@ -34,6 +41,8 @@ impl Default for AppConfig {
             width: None,
             height: None,
             resizable: true,
+            control_flow: ControlFlow::Poll,
+            redraw_on_cursor_move: false,
         }
     }
 }
@@ -133,6 +142,20 @@ impl<R, H: AppHandler<R> + 'static> ApplicationHandler<(R, H)> for AppRunner<R, 
             handler.on_window_event(self.window.as_ref().unwrap(), &event);
         }
 
+        // In Wait mode, input events must trigger a redraw so frame() gets called.
+        // CursorMoved is opt-in via redraw_on_cursor_move (off by default) since
+        // keyboard-driven apps don't need per-pixel cursor redraws.
+        let needs_redraw = !matches!(self.config.control_flow, ControlFlow::Poll)
+            && (matches!(
+                event,
+                WindowEvent::KeyboardInput { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::MouseWheel { .. }
+                    | WindowEvent::Touch(_)
+                    | WindowEvent::Resized(_)
+            ) || (self.config.redraw_on_cursor_move
+                && matches!(event, WindowEvent::CursorMoved { .. })));
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
@@ -146,7 +169,9 @@ impl<R, H: AppHandler<R> + 'static> ApplicationHandler<(R, H)> for AppRunner<R, 
                 handler.frame(window, resource, &self.input, &self.timer);
                 self.input.end_frame();
 
-                window.request_redraw();
+                if matches!(self.config.control_flow, ControlFlow::Poll) {
+                    window.request_redraw();
+                }
             }
             WindowEvent::Resized(size) => {
                 if size.width == 0 || size.height == 0 {
@@ -172,6 +197,12 @@ impl<R, H: AppHandler<R> + 'static> ApplicationHandler<(R, H)> for AppRunner<R, 
                 self.input.update_scroll(wheel_delta);
             }
             _ => {}
+        }
+
+        if needs_redraw {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
         }
     }
 
@@ -219,7 +250,7 @@ impl<R, H: AppHandler<R> + 'static> AppRunner<R, H> {
         }
 
         let event_loop = event_loop_builder.build().unwrap();
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(self.config.control_flow);
         self.proxy = Some(event_loop.create_proxy());
 
         #[cfg(target_arch = "wasm32")]
